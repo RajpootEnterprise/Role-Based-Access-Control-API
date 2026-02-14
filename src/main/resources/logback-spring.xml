@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration debug="false">
+    
+    
+    <!-- Read logging.file.path from application.properties, default to 'logs' -->
+    <springProperty scope="context" name="LOG_DIR" source="logging.file.path" defaultValue="logs"/>
+
+    <!-- Define logging pattern -->
+    <property name="PATTERN" value="%d{yyyy-MM-dd HH:mm:ss.SSS} | %-5level | %thread | %logger{36} | %method | %line | %msg%n"/>
+
+    <!-- Console Appender -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- Trace File Appender -->
+    <appender name="TRACE_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/trace/trace.log</file>
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/trace/archive/trace.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- DB File Appender -->
+    <appender name="DB_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/db/db.log</file>
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_DIR}/db/archive/db.%d{yyyy-MM-dd}.%i.log.gz</fileNamePattern>
+            <maxFileSize>100MB</maxFileSize>
+            <maxHistory>30</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+    </appender>
+
+    <!-- Logger for org.jboss.logging to resolve JBoss Logging warning -->
+    <logger name="org.jboss.logging" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="DB_FILE"/>
+    </logger>
+
+    <!-- Trace Logger -->
+    <logger name="TraceLogger" level="INFO" additivity="false">
+        <appender-ref ref="TRACE_FILE"/>
+        <appender-ref ref="DB_FILE"/>
+    </logger>
+
+    <!-- Database Logger -->
+    <logger name="DbLogger" level="INFO" additivity="false">
+        <appender-ref ref="DB_FILE"/>
+    </logger>
+
+    <!-- Root Logger to handle all other logs -->
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="DB_FILE"/>
+    </root>
+</configuration>
