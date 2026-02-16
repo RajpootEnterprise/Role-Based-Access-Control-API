@@ -488,8 +488,7 @@ public class UserServiceImpl implements UserService {
 	@Override
 	public PaginatedResponse<UserDTO> getAllUsers(int page, int size, Long userId, String search) {
 		try {
-			log.info("Fetching users with search='{}', page={}, size={}, requested by userId={}", search, page, size,
-					userId);
+			log.info("Fetching users with search='{}', page={}, size={}, requested by userId={}", search, page, size, userId);
 
 			if (page < 0 || size <= 0) {
 				throw new BadRequestException("Invalid pagination parameters");
@@ -500,10 +499,18 @@ public class UserServiceImpl implements UserService {
 
 			List<User> filteredUsers;
 
-			if (hasSuperAdminAccess(actingUser)) {
-				log.debug("User {} has super admin access. Fetching all non-super-admin users.", userId);
+			// Get role name
+			String roleName = actingUser.getRole() != null ? actingUser.getRole().getName() : null;
+			log.debug("Acting user {} has role: {}", userId, roleName);
+
+			boolean hasFullAccess = roleName != null && (roleName.equals("SUPER_ADMIN") || roleName.equals("HTI_ACCESS"));
+
+			if (hasFullAccess) {
+				// SUPER_ADMIN, ADMIN, or HTI_ACCESS can see all users (except other super admins)
+				log.info("User {} has {} access. Fetching all non-super-admin users.", userId, roleName);
 				filteredUsers = userRepository.findAllNonSuperAdminUsers();
 			} else {
+				// Other roles: only see users in their own company
 				Company company = actingUser.getCompany();
 				if (company == null || company.getDeletedAt() != null) {
 					log.warn("User {} does not belong to a valid company.", userId);
@@ -519,6 +526,7 @@ public class UserServiceImpl implements UserService {
 				filteredUsers = userRepository.findByDeletedAtIsNullAndCompanyId(company.getId());
 			}
 
+			// Apply search filter
 			if (search != null && !search.isBlank()) {
 				String lowerSearch = search.toLowerCase();
 				filteredUsers = filteredUsers.stream()
@@ -528,15 +536,16 @@ public class UserServiceImpl implements UserService {
 				log.debug("Filtered users count after search='{}': {}", search, filteredUsers.size());
 			}
 
+			// Pagination
 			int total = filteredUsers.size();
 			int start = Math.min(page * size, total);
 			int end = Math.min(start + size, total);
 
-			List<UserDTO> pagedUserDTOs = filteredUsers.subList(start, end).stream().map(this::mapToDTO)
+			List<UserDTO> pagedUserDTOs = filteredUsers.subList(start, end).stream()
+					.map(this::mapToDTO)
 					.collect(Collectors.toList());
 
-			log.info("Returning {} users for page={} size={}, total matches={}", pagedUserDTOs.size(), page, size,
-					total);
+			log.info("Returning {} users for page={} size={}, total matches={}", pagedUserDTOs.size(), page, size, total);
 
 			return new PaginatedResponse<>(pagedUserDTOs, page, size, total, (int) Math.ceil((double) total / size));
 
@@ -550,7 +559,6 @@ public class UserServiceImpl implements UserService {
 			MDC.clear();
 		}
 	}
-
 	private void validateRoleChangePermission(User requester, User targetUser, Role newRole) {
 		if (hasSuperAdminPermission(requester)) {
 			return;

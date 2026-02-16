@@ -511,12 +511,22 @@ public class CompanyServiceImpl implements CompanyService {
 
 			List<Company> filteredCompanies;
 
-			if (hasSuperAdminAccess(actingUser)) {
+			// Get role name
+			String roleName = actingUser.getRole() != null ? actingUser.getRole().getName() : null;
+			logger.debug("Acting user {} has role: {}", userId, roleName);
+
+			// Check if user has SUPER_ADMIN, ADMIN, or HTI_ACCESS role
+			boolean hasFullAccess = roleName != null &&	(roleName.equals("SUPER_ADMIN") || roleName.equals("HTI_ACCESS"));
+
+			if (hasFullAccess) {
+				// SUPER_ADMIN, ADMIN, or HTI_ACCESS can see all companies
+				logger.info("User {} has {} access. Fetching all companies.", userId, roleName);
 
 				filteredCompanies = companyRepository.findAllByDeletedAtIsNull(Sort.by("name").ascending()).stream()
 						.filter(company -> {
 							List<User> activeUsers = company.getUsers().stream()
-									.filter(user -> user.getDeletedAt() == null).collect(Collectors.toList());
+									.filter(user -> user.getDeletedAt() == null)
+									.collect(Collectors.toList());
 
 							boolean hasNonSuperAdmin = activeUsers.stream()
 									.anyMatch(user -> !hasSuperAdminAccess(user));
@@ -525,6 +535,7 @@ public class CompanyServiceImpl implements CompanyService {
 						}).collect(Collectors.toList());
 
 			} else {
+				// Other roles: only see their own company
 				Company userCompany = actingUser.getCompany();
 				if (userCompany == null || userCompany.getDeletedAt() != null) {
 					throw new NotFoundException("User has no valid company.");
@@ -534,24 +545,34 @@ public class CompanyServiceImpl implements CompanyService {
 					throw new UnauthorizedException("You don't have permission to view this company.");
 				}
 
+				logger.debug("User {} is allowed to view only their own company {}", userId, userCompany.getId());
 				filteredCompanies = List.of(userCompany);
 			}
 
+			// Apply search filter
 			if (search != null && !search.isBlank()) {
 				String lowerSearch = search.toLowerCase();
-				filteredCompanies = filteredCompanies.stream().filter(company -> (company.getName() != null
-						&& company.getName().toLowerCase().contains(lowerSearch))
-						|| (company.getDomain() != null && company.getDomain().toLowerCase().contains(lowerSearch)))
+				filteredCompanies = filteredCompanies.stream()
+						.filter(company -> (company.getName() != null && company.getName().toLowerCase().contains(lowerSearch))
+								|| (company.getDomain() != null && company.getDomain().toLowerCase().contains(lowerSearch)))
 						.collect(Collectors.toList());
 
 				logger.debug("Filtered companies count after search='{}': {}", search, filteredCompanies.size());
 			}
 
+			// Pagination
 			int total = filteredCompanies.size();
 			int start = Math.min(page * size, total);
 			int end = Math.min(start + size, total);
-			List<GetAllComapanyDTO> dtoPage = total > 0 ? filteredCompanies.subList(start, end).stream()
-					.map(this::mapToDTOAllCompany).collect(Collectors.toList()) : Collections.emptyList();
+
+			List<GetAllComapanyDTO> dtoPage = total > 0
+					? filteredCompanies.subList(start, end).stream()
+					.map(this::mapToDTOAllCompany)
+					.collect(Collectors.toList())
+					: Collections.emptyList();
+
+			logger.info("Returning {} companies for page={} size={}, total matches={}",
+					dtoPage.size(), page, size, total);
 
 			return new PaginatedResponse<>(dtoPage, page, size, total, (int) Math.ceil((double) total / size));
 

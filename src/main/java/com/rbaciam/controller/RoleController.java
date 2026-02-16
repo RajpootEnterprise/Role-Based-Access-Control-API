@@ -173,5 +173,4 @@ public class RoleController {
 
 	        return ResponseEntity.ok(roleService.filterRoles(roleName,permissionId,createdFrom,createdTo, page, size, userId));
 	}
-
 }
