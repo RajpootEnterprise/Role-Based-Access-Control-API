@@ -1,8 +1,10 @@
 package com.rbaciam.controller;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
+import com.rbaciam.dto.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -23,10 +25,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.rbaciam.dto.ApiResponseDto;
-import com.rbaciam.dto.CreateRoleDTO;
-import com.rbaciam.dto.PaginatedResponse;
-import com.rbaciam.dto.RoleDTO;
 import com.rbaciam.service.RoleService;
 
 import io.swagger.v3.oas.annotations.Operation;
@@ -40,6 +38,54 @@ public class RoleController {
 	@Autowired
 	private RoleService roleService;
 	private static final Logger logger = LoggerFactory.getLogger("TraceLogger");
+
+	@Operation(summary = "Assign permissions to role", description = "Accessible by Super Admin only")
+	@ApiResponse(responseCode = "200", description = "Permissions assigned successfully")
+	@ApiResponse(responseCode = "400", description = "Invalid input")
+	@ApiResponse(responseCode = "403", description = "Forbidden - Only Super Admin can assign permissions")
+	@PostMapping("/assign_permissions")
+	public ResponseEntity<ApiResponseDto> assignPermissionsToRole(
+			@Valid @RequestBody AssignPermissionsRequestDTO request,
+			@RequestHeader("X-User-Id") Long userId) {
+
+		logger.info("CONTROLLER_LOG | Assigning permissions to role ID={} by userId={}",
+				request.getRoleId(), userId);
+
+		roleService.assignPermissionsToRole(request.getRoleId(), request.getPermissionIds(), userId);
+
+		return ResponseEntity.ok(new ApiResponseDto(true, "Permissions assigned successfully"));
+	}
+
+	@Operation(summary = "Remove permissions from role", description = "Accessible by Super Admin only")
+	@ApiResponse(responseCode = "200", description = "Permissions removed successfully")
+	@ApiResponse(responseCode = "400", description = "Invalid input")
+	@ApiResponse(responseCode = "403", description = "Forbidden - Only Super Admin can remove permissions")
+	@PostMapping("/remove_permissions")
+	public ResponseEntity<ApiResponseDto> removePermissionsFromRole(
+			@Valid @RequestBody AssignPermissionsRequestDTO request,
+			@RequestHeader("X-User-Id") Long userId) {
+
+		logger.info("CONTROLLER_LOG | Removing permissions from role ID={} by userId={}",
+				request.getRoleId(), userId);
+
+		roleService.removePermissionsFromRole(request.getRoleId(), request.getPermissionIds(), userId);
+
+		return ResponseEntity.ok(new ApiResponseDto(true, "Permissions removed successfully"));
+	}
+
+	@Operation(summary = "Get permissions for a role", description = "Accessible by Super Admin and Admin")
+	@ApiResponse(responseCode = "200", description = "Permissions retrieved successfully")
+	@GetMapping("/get_permissions/{role_id}")
+	public ResponseEntity<List<PermissionDTO>> getRolePermissions(
+			@PathVariable("role_id") Long roleId,
+			@RequestHeader("X-User-Id") Long userId) {
+
+		logger.info("CONTROLLER_LOG | Getting permissions for role ID={}", roleId);
+
+		List<PermissionDTO> permissions = roleService.getRolePermissions(roleId, userId);
+
+		return ResponseEntity.ok(permissions);
+	}
 
 	@Operation(summary = "Create a new role", description = "Accessible by Super Admin or Admin")
 	@ApiResponse(responseCode = "200", description = "Role created successfully")

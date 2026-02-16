@@ -9,10 +9,13 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.rbaciam.repository.PermissionRepository;
+import com.rbaciam.repository.RolePermissionRepository;
 import org.apache.commons.lang3.StringUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.dao.DataAccessException;
@@ -52,6 +55,202 @@ public class RoleServiceImpl implements RoleService {
 	private final PermissionService permissionService;
 	private final UserRepository userRepository;
 	private static final Logger logger = LoggerFactory.getLogger("TraceLogger");
+
+	@Autowired
+	private PermissionRepository permissionRepository;
+	@Autowired
+	private RolePermissionRepository rolePermissionRepository;
+
+
+	@Override
+	@Transactional
+	@CacheEvict(value = "roles", key = "#roleId")
+	public void assignPermissionsToRole(Long roleId, List<Long> permissionIds, Long userId) {
+		String requestId = UUID.randomUUID().toString();
+		MDC.put("requestId", requestId);
+		MDC.put("userId", String.valueOf(userId));
+
+		try {
+			// Validate user ID
+			if (userId == null || userId <= 0) {
+				logger.error("SERVICE_LOG | Invalid user ID: {}", userId);
+				throw new AuthenticationExceptionFailed("Invalid user ID: " + userId);
+			}
+
+			// Check super admin permission
+			if (!permissionService.hasPermission(userId, "super_admin_access")) {
+				logger.warn("SERVICE_LOG | User ID={} lacks super_admin_access", userId);
+				throw new UnauthorizedException("Only Super Admin can assign permissions to roles");
+			}
+
+			// Validate role exists
+			Role role = roleRepository.findByIdAndDeletedAtIsNull(roleId)
+					.orElseThrow(() -> {
+						logger.error("SERVICE_LOG | Role not found: {}", roleId);
+						return new NotFoundException("Role not found: " + roleId);
+					});
+
+			// Validate permission IDs are not empty
+			if (permissionIds == null || permissionIds.isEmpty()) {
+				logger.error("SERVICE_LOG | Permission IDs list is empty");
+				throw new BadRequestException("At least one permission ID is required");
+			}
+
+			// Validate all permissions exist
+			List<Permission> permissions = permissionRepository.findAllById(permissionIds);
+			if (permissions.size() != permissionIds.size()) {
+				logger.error("SERVICE_LOG | Some permission IDs not found");
+				throw new NotFoundException("One or more permissions not found");
+			}
+
+			logger.info("SERVICE_LOG | Removing existing permissions for role ID={}", roleId);
+			// Remove existing permissions for this role
+			rolePermissionRepository.deleteByRoleId(roleId);
+
+			logger.info("SERVICE_LOG | Assigning {} new permissions to role ID={}",
+					permissions.size(), roleId);
+			// Assign new permissions
+			for (Permission permission : permissions) {
+				RolePermission rolePermission = new RolePermission();
+				rolePermission.setRole(role);
+				rolePermission.setPermission(permission);
+				rolePermissionRepository.save(rolePermission);
+			}
+
+			logger.info("TRACE_LOG | Action=ASSIGN_PERMISSIONS | RoleId={} | PermissionCount={} | UserId={}",
+					roleId, permissions.size(), userId);
+			logger.info("SERVICE_LOG | Successfully assigned permissions to role ID={}", roleId);
+
+		} catch (AuthenticationExceptionFailed | UnauthorizedException |
+				 NotFoundException | BadRequestException ex) {
+			throw ex;
+		} catch (DataAccessException ex) {
+			logger.error("SERVICE_LOG | Database error while assigning permissions: {}", ex.getMessage());
+			throw new InternalServerException("Failed to assign permissions due to database error");
+		} catch (Exception ex) {
+			logger.error("SERVICE_LOG | Unexpected error while assigning permissions: {}", ex.getMessage());
+			throw new InternalServerException("Unexpected error occurred while assigning permissions");
+		} finally {
+			MDC.clear();
+		}
+	}
+
+	@Override
+	@Transactional
+	@CacheEvict(value = "roles", key = "#roleId")
+	public void removePermissionsFromRole(Long roleId, List<Long> permissionIds, Long userId) {
+		String requestId = UUID.randomUUID().toString();
+		MDC.put("requestId", requestId);
+		MDC.put("userId", String.valueOf(userId));
+
+		try {
+			// Validate user ID
+			if (userId == null || userId <= 0) {
+				logger.error("SERVICE_LOG | Invalid user ID: {}", userId);
+				throw new AuthenticationExceptionFailed("Invalid user ID: " + userId);
+			}
+
+			// Check super admin permission
+			if (!permissionService.hasPermission(userId, "super_admin_access")) {
+				logger.warn("SERVICE_LOG | User ID={} lacks super_admin_access", userId);
+				throw new UnauthorizedException("Only Super Admin can remove permissions from roles");
+			}
+
+			// Validate role exists
+			Role role = roleRepository.findByIdAndDeletedAtIsNull(roleId)
+					.orElseThrow(() -> {
+						logger.error("SERVICE_LOG | Role not found: {}", roleId);
+						return new NotFoundException("Role not found: " + roleId);
+					});
+
+			// Validate permission IDs are not empty
+			if (permissionIds == null || permissionIds.isEmpty()) {
+				logger.error("SERVICE_LOG | Permission IDs list is empty");
+				throw new BadRequestException("At least one permission ID is required");
+			}
+
+			logger.info("SERVICE_LOG | Removing {} permissions from role ID={}",
+					permissionIds.size(), roleId);
+
+			// Remove specific permissions
+			for (Long permissionId : permissionIds) {
+				rolePermissionRepository.deleteByRoleIdAndPermissionId(roleId, permissionId);
+			}
+
+			logger.info("TRACE_LOG | Action=REMOVE_PERMISSIONS | RoleId={} | PermissionCount={} | UserId={}",
+					roleId, permissionIds.size(), userId);
+			logger.info("SERVICE_LOG | Successfully removed permissions from role ID={}", roleId);
+
+		} catch (AuthenticationExceptionFailed | UnauthorizedException |
+				 NotFoundException | BadRequestException ex) {
+			throw ex;
+		} catch (DataAccessException ex) {
+			logger.error("SERVICE_LOG | Database error while removing permissions: {}", ex.getMessage());
+			throw new InternalServerException("Failed to remove permissions due to database error");
+		} catch (Exception ex) {
+			logger.error("SERVICE_LOG | Unexpected error while removing permissions: {}", ex.getMessage());
+			throw new InternalServerException("Unexpected error occurred while removing permissions");
+		} finally {
+			MDC.clear();
+		}
+	}
+
+	@Override
+	@Cacheable(value = "roles", key = "#roleId")
+	public List<PermissionDTO> getRolePermissions(Long roleId, Long userId) {
+		String requestId = UUID.randomUUID().toString();
+		MDC.put("requestId", requestId);
+		MDC.put("userId", String.valueOf(userId));
+
+		try {
+			// Validate user ID
+			if (userId == null || userId <= 0) {
+				logger.error("SERVICE_LOG | Invalid user ID: {}", userId);
+				throw new AuthenticationExceptionFailed("Invalid user ID: " + userId);
+			}
+
+			// Validate user has access
+			validateUserAccess(userId);
+
+			// Validate role exists
+			Role role = roleRepository.findByIdAndDeletedAtIsNull(roleId)
+					.orElseThrow(() -> {
+						logger.error("SERVICE_LOG | Role not found: {}", roleId);
+						return new NotFoundException("Role not found: " + roleId);
+					});
+
+			logger.info("SERVICE_LOG | Fetching permissions for role ID={}", roleId);
+			logger.info("TRACE_LOG | Action=GET_ROLE_PERMISSIONS | RoleId={} | UserId={}", roleId, userId);
+
+			// Get permissions
+			List<PermissionDTO> permissions = role.getRolePermissions().stream()
+					.map(rp -> {
+						Permission p = rp.getPermission();
+						if (p == null) return null;
+						PermissionDTO dto = new PermissionDTO();
+						dto.setId(p.getId());
+						dto.setName(p.getName());
+						return dto;
+					})
+					.filter(Objects::nonNull)
+					.collect(Collectors.toList());
+
+			logger.info("SERVICE_LOG | Found {} permissions for role ID={}", permissions.size(), roleId);
+			return permissions;
+
+		} catch (AuthenticationExceptionFailed | UnauthorizedException |
+				 NotFoundException | BadRequestException ex) {
+			throw ex;
+		} catch (DataAccessException ex) {
+			logger.error("SERVICE_LOG | Database error while fetching permissions: {}", ex.getMessage());
+			throw new InternalServerException("Failed to fetch permissions due to database error");
+		} catch (Exception ex) {
+			logger.error("SERVICE_LOG | Unexpected error while fetching permissions: {}", ex.getMessage());
+			throw new InternalServerException("Unexpected error occurred while fetching permissions");
+		} finally {
+			MDC.clear();
+		}
+	}
 
 	@Override
 	@Transactional

@@ -9,12 +9,16 @@ import org.springframework.stereotype.Repository;
 
 import com.rbaciam.entity.Permission;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
 public interface PermissionRepository extends JpaRepository<Permission, Long> {
     Logger logger = LoggerFactory.getLogger("DbLogger");
 //two methods are working findbyId and findbyNameNot
+
+    List<Permission> findAllById(Iterable<Long> ids);
+
     Optional<Permission> findById(Long id); 
 
     Optional<Permission> findByName(String name); 
